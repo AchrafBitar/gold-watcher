@@ -25,4 +25,4 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
-        run: python gold_bot.py
+        run: python -u gold_bot.py
