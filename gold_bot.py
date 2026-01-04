@@ -63,37 +63,34 @@ def main():
         print(f"Current: ${current_price:.2f}")
         print(f"2-Day Range: {swing_low:.1f} - {swing_high:.1f}")
         
+        # ... (Inside main function, after calculating levels) ...
+        
         # 4. Check for Entries
         alert_triggered = False
-        message_buffer = [f"📊 <b>Gold Update</b> (${current_price:.2f})"]
+        message_buffer = [f"📊 <b>Gold Update</b>"]
+        message_buffer.append(f"Price: ${current_price:.2f}")
         
         for name, price in fib_levels.items():
-            # Debug print
-            print(f"{name}: ${price:.2f}")
-            
             if abs(current_price - price) <= threshold:
                 alert_triggered = True
-                message_buffer.append(f"🚨 <b>NEAR LEVEL: {name}</b>")
-                message_buffer.append(f"Price: ${price:.2f}")
+                message_buffer.append(f"🚨 <b>NEAR {name}</b>: ${price:.2f}")
 
-        # Always send a 'Daily Brief' if it's the first run, or just on alert
-        # For now, we only send if near a level to avoid spam, 
-        # BUT we append the range info if an alert is triggered.
+        # 5. The Decision Logic
         if alert_triggered:
-            message_buffer.append(f"\nrange: ${swing_low:.0f} - ${swing_high:.0f}")
+            # If we found a level, send the ALERT
+            message_buffer.append(f"\nrange: ${swing_low:.1f} - ${swing_high:.1f}")
             full_msg = "\n".join(message_buffer)
-            # Send HTML parse mode if you want bolding, or plain text
-            # For simplicity in this function, we assume plain text usually
-            # stripping tags or just sending as is:
             send_telegram_alert(full_msg.replace("<b>", "").replace("</b>", ""))
-
+            
         else:
-            print("No levels triggered.")
-            # OPTIONAL: Uncomment below to verify it works even without levels
-            # send_telegram_alert(f"Bot Alive. Gold: ${current_price:.2f}. Range: {swing_low}-{swing_high}")
+            # If NO level found, send the "NO TRADING" message
+            # This ensures you get a notification every time the script runs.
+            status_msg = (
+                f"NO TRADING FOR NOW :)\n"
+                f"Current: ${current_price:.2f}\n"
+                f"(Range: {swing_low:.0f}-{swing_high:.0f})"
+            )
+            send_telegram_alert(status_msg)
 
     except Exception as e:
         print(f"Error: {e}")
-
-if __name__ == "__main__":
-    main()
