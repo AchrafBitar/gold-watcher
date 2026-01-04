@@ -34,40 +34,37 @@ def calculate_fib_levels(high, low):
     }
 
 def main():
-    ticker = "GC=F" # Gold Futures (Reliable)
-    threshold = 3.0  # Alert if within $3 of a level
+    ticker = "ETH-USD" # Ethereum
+    threshold = 10.0   # Alert within $10 range
     
     print(f"Analyzing {ticker} Market Structure...")
 
     try:
-        gold = yf.Ticker(ticker)
+        coin = yf.Ticker(ticker)
         
-        # 1. Fetch Data (Last 5 days to be safe, then slice last 2)
-        hist = gold.history(period="5d")
+        # 1. Fetch Data 
+        hist = coin.history(period="5d")
         
         if len(hist) < 2:
-            print("Not enough data for swing analysis.")
+            print("Not enough data.")
             return
 
-        # Slice the last 2 trading days
+        # Slice last 2 days
         last_2_days = hist.tail(2)
         
-        # 2. Identify Swing High and Low
+        # 2. Identify Swing High/Low
         swing_high = last_2_days['High'].max()
         swing_low = last_2_days['Low'].min()
         current_price = hist['Close'].iloc[-1]
         
-        # 3. Calculate Fibonacci Levels automatically
+        # 3. Calculate Fibs
         fib_levels = calculate_fib_levels(swing_high, swing_low)
         
         print(f"Current: ${current_price:.2f}")
-        print(f"2-Day Range: {swing_low:.1f} - {swing_high:.1f}")
-        
-        # ... (Inside main function, after calculating levels) ...
         
         # 4. Check for Entries
         alert_triggered = False
-        message_buffer = [f"📊 <b>Gold Update</b>"]
+        message_buffer = [f"💎 <b>ETH Update</b>"]
         message_buffer.append(f"Price: ${current_price:.2f}")
         
         for name, price in fib_levels.items():
@@ -75,18 +72,15 @@ def main():
                 alert_triggered = True
                 message_buffer.append(f"🚨 <b>NEAR {name}</b>: ${price:.2f}")
 
-        # 5. The Decision Logic
+        # 5. Decision
         if alert_triggered:
-            # If we found a level, send the ALERT
-            message_buffer.append(f"\nrange: ${swing_low:.1f} - ${swing_high:.1f}")
+            message_buffer.append(f"\nRange: ${swing_low:.0f} - ${swing_high:.0f}")
             full_msg = "\n".join(message_buffer)
             send_telegram_alert(full_msg.replace("<b>", "").replace("</b>", ""))
             
         else:
-            # If NO level found, send the "NO TRADING" message
-            # This ensures you get a notification every time the script runs.
             status_msg = (
-                f"NO TRADING FOR NOW :)\n"
+                f"NO ETH TRADES :)\n"
                 f"Current: ${current_price:.2f}\n"
                 f"(Range: {swing_low:.0f}-{swing_high:.0f})"
             )
