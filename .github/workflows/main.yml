@@ -20,9 +20,14 @@ jobs:
       - name: Install Libraries
         run: |
           pip install yfinance requests
+      - name: Debug - Show me the code
+        run: cat gold_bot.py
           
       - name: Run The Script
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python -u gold_bot.py
+
+
+   
