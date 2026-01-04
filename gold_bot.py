@@ -31,7 +31,7 @@ def send_telegram_alert(message):
 
 def main():
     # Configuration
-    ticker = "XAUUSD=X"
+    ticker = "GC=F"
     key_levels = [2550, 2600, 2650]
     threshold = 2.0  # Range within which to alert (e.g., +/- $2)
 
