@@ -32,7 +32,7 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 def get_market_data(symbol: str) -> str:
     """Fetches market data and calculates indicators."""
     try:
-        exchange = ccxt.binance()
+        exchange = ccxt.binanceus()
         
         def fetch_process(timeframe, limit):
             ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
