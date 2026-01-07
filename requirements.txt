@@ -1,2 +1,6 @@
-yfinance
+ccxt
+pandas
+pandas_ta
+openai
 requests
+python-dotenv
