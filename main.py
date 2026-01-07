@@ -89,18 +89,32 @@ def get_market_data(symbol: str) -> str:
 
 def analyze_market(data_string: str) -> str:
     """Sends data to OpenAI for analysis."""
+    # --- FIXED SYSTEM PROMPT ---
     system_prompt = """
     You are a Senior Systematic Market Analyst. Your job is to filter trades based on INSTITUTIONAL RULES.
+    
     STRICT LOGIC:
     1. MARKET REGIME (4H):
        - BULLISH: Price > EMA 50 > EMA 200
        - BEARISH: Price < EMA 50 < EMA 200
-       - CHOP (NO TRADE): Any other configuration.
+       - CHOP: Any other configuration.
     2. MOMENTUM (1H):
        - LONG: RSI must NOT be < 30.
        - SHORT: RSI must NOT be > 70.
-    OUTPUT FORMAT:
-    Start response strictly with "🔴 STATUS: NO TRADE" or "🟢 STATUS: TRADE ACTIVE".
+
+    OUTPUT FORMAT (MUST FOLLOW EXACTLY):
+
+    SCENARIO 1: NO TRADE
+    "🔴 STATUS: NO TRADE
+    Reason: [Explain why, e.g. 'Market is in chop', 'RSI diverging']"
+
+    SCENARIO 2: TRADE ACTIVE
+    "🟢 STATUS: TRADE ACTIVE
+    🔹 DIRECTION: [LONG or SHORT]
+    🔹 ENTRY: [Current Price]
+    🔹 STOP LOSS: [Specific Price, usually recent swing high/low]
+    🔹 TAKE PROFIT: [Specific Price, targeting 1.5R]
+    🔹 REASONING: [Brief explanation]"
     """
     try:
         response = client.chat.completions.create(
@@ -136,12 +150,10 @@ def main():
         analysis_result = analyze_market(market_data)
         if not analysis_result: continue
 
-        # --- MODIFIED NOTIFICATION LOGIC ---
+        # Notify
         if "🟢 STATUS: TRADE ACTIVE" in analysis_result:
-            # Case 1: Valid Trade Found
             send_telegram_alert(f"🚨 **SIGNAL FOUND** 🚨\n\n{symbol}\n{analysis_result}")
         else:
-            # Case 2: No Trade (But notify anyway)
             send_telegram_alert(f"📉 **Market Update (No Trade)**\n\n{symbol}\n{analysis_result}")
             logger.info(f"No trade for {symbol}, but notification sent.")
 
