@@ -1,119 +1,201 @@
 import os
-import yfinance as yf
+import time
+import json
+import logging
 import requests
+import ccxt
 import pandas as pd
-import numpy as np
+import pandas_ta as ta
+from openai import OpenAI
+from dotenv import load_dotenv
 
-def send_telegram_alert(message):
-    bot_token = os.environ.get("BOT_TOKEN")
-    chat_id = os.environ.get("CHAT_ID")
-    if not bot_token or not chat_id: return
-    
-    # We use HTML parsing for bold text
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
-    try: requests.post(url, json=payload)
-    except: pass
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-def calculate_rsi(series, period=14):
-    """ Calculates the Relative Strength Index (Momentum) """
-    delta = series.diff(1)
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
+# Load environment variables
+load_dotenv()
 
-def calculate_fib_levels(high, low):
-    """ Calculates the Golden Zone """
-    diff = high - low
-    return {
-        "0.500": high - (diff * 0.5),      # Equilibrium
-        "0.618": high - (diff * 0.618),    # Golden Pocket
-    }
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-def main():
-    ticker = "ETH-USD"
-    threshold = 15.0 # Increased buffer for ETH volatility
-    
-    print(f"Running Expert Analysis on {ticker}...")
+if not all([OPENAI_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID]):
+    logger.error("Missing environment variables. Please check your .env file.")
+    exit(1)
 
+# Initialize OpenAI client
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+def get_market_data(symbol: str) -> str:
+    """
+    Fetches market data and calculates indicators.
+    Returns a formatted string summary.
+    """
     try:
-        # Fetch detailed data (15m intervals for the last 5 days)
-        coin = yf.Ticker(ticker)
-        # 15m interval is best for Day/Swing trading logic
-        df = coin.history(period="5d", interval="15m")
+        exchange = ccxt.binance()
         
-        if len(df) < 50:
-            print("Not enough data.")
-            return
+        # Helper to fetch and process OHLCV
+        def fetch_process(timeframe, limit):
+            ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            return df
 
-        # --- TECHNICAL ANALYSIS ---
-        current_price = df['Close'].iloc[-1]
-        
-        # 1. Trend (50 Simple Moving Average)
-        df['SMA_50'] = df['Close'].rolling(window=50).mean()
-        # If Price > SMA, we are in an UPTREND (Look for Longs)
-        trend = "BULLISH 🟢" if current_price > df['SMA_50'].iloc[-1] else "BEARISH 🔴"
-        
-        # 2. Momentum (RSI)
-        df['RSI'] = calculate_rsi(df['Close'])
-        rsi = df['RSI'].iloc[-1]
-        
-        # 3. Structure (Fibs of last 48h / ~192 candles)
-        last_2_days = df.tail(192) 
-        swing_high = last_2_days['High'].max()
-        swing_low = last_2_days['Low'].min()
-        fibs = calculate_fib_levels(swing_high, swing_low)
-        
-        # --- DECISION ENGINE ---
-        signal = "WAIT ✋"
-        reason = "Market is choppy."
-        
-        # Distance to Golden Zone
-        dist_to_05 = abs(current_price - fibs["0.500"])
-        dist_to_618 = abs(current_price - fibs["0.618"])
-        in_zone = (dist_to_05 <= threshold) or (dist_to_618 <= threshold)
+        # 1. Fetch data
+        logger.info(f"Fetching data for {symbol}...")
+        df_4h = fetch_process('4h', 300)
+        df_1h = fetch_process('1h', 300)
 
-        # LOGIC TREE
-        if in_zone:
-            if "BULLISH" in trend and rsi < 70:
-                signal = "BUY / LONG 🚀"
-                reason = "Uptrend pullback to Golden Pocket."
-            elif "BEARISH" in trend and rsi > 30:
-                signal = "SELL / SHORT 📉"
-                reason = "Downtrend rejection at Golden Pocket."
-            else:
-                signal = "WATCH 👀"
-                reason = "In Zone, but Momentum (RSI) contradicts Trend."
-        else:
-            # Overbought/Oversold Checks
-            if rsi > 75:
-                signal = "TAKE PROFIT 💰"
-                reason = "RSI is Overheated (>75)."
-            elif rsi < 25:
-                signal = "TAKE PROFIT 💰"
-                reason = "RSI is Oversold (<25)."
-
-        # --- TELEGRAM REPORT ---
-        msg = [f"🧠 <b>ETH STRATEGY ADVISOR</b>"]
-        msg.append(f"<b>SIGNAL: {signal}</b>")
-        msg.append(f"---------------------------")
-        msg.append(f"💎 Price: ${current_price:.2f}")
-        msg.append(f"📈 Trend: {trend}")
-        msg.append(f"⚡ RSI: {rsi:.1f}")
-        msg.append(f"---------------------------")
-        msg.append(f"🎯 <b>Logic:</b> {reason}")
+        # 2. Calculate Indicators
+        # 4H Chart: EMA 50 and EMA 200
+        df_4h.ta.ema(length=50, append=True)
+        df_4h.ta.ema(length=200, append=True)
         
-        if in_zone:
-             msg.append(f"📍 Fib Zone: ${fibs['0.618']:.2f} - ${fibs['0.500']:.2f}")
+        # 1H Chart: RSI (length 14)
+        df_1h.ta.rsi(length=14, append=True)
 
-        full_msg = "\n".join(msg)
+        # Dynamic Column Name Logic (The "RSI" Trap Fix)
+        # Find the actual column names generated by pandas_ta
+        rsi_col = 'RSI_14' if 'RSI_14' in df_1h.columns else 'RSI'
+        ema50_col = 'EMA_50' if 'EMA_50' in df_4h.columns else 'EMA_50.0' # sometimes .0 is appended
+        ema200_col = 'EMA_200' if 'EMA_200' in df_4h.columns else 'EMA_200.0'
         
-        # Send Alert
-        send_telegram_alert(full_msg)
+        # Fallback if standard names fail - grab by prefix if needed, but the above covers 99%
+        # Let's ensure we actually found them or error out gracefully? 
+        # For simplicity, if not found, let it KeyError but let's try one more fuzzy match
+        if rsi_col not in df_1h.columns:
+             cols = [c for c in df_1h.columns if c.startswith('RSI')]
+             if cols: rsi_col = cols[0]
+        
+        if ema50_col not in df_4h.columns:
+             cols = [c for c in df_4h.columns if c.startswith('EMA_50')]
+             if cols: ema50_col = cols[0]
+
+        if ema200_col not in df_4h.columns:
+             cols = [c for c in df_4h.columns if c.startswith('EMA_200')]
+             if cols: ema200_col = cols[0]
+
+        # Get latest values (using iloc[-2] for completed candle or -1 for current? 
+        # Usually completed candle is safer for backtesting logic, but for live signals current or just closed is key.
+        # User asked for "previous candle close" in formatted string, implies closed candles.
+        # Let's use the last closed candle (iloc[-2]) to avoid repainting, or -1 if we accept live data.
+        # Standard practice for 'signals' is usually the just-closed candle.
+        # Let's grab the last FULLY completed candle.
+        
+        # However, ccxt fetch_ohlcv usually includes the current forming candle as the last one.
+        # So iloc[-2] is the last completed candle.
+        
+        # Get latest closed candle values
+        last_4h = df_4h.iloc[-2]
+        last_1h = df_1h.iloc[-2]
+        
+        # Current Price (close of the forming candle might be more relevant for 'current price')
+        current_price = df_1h.iloc[-1]['close']
+
+        # Format Data String
+        data_string = (
+            f"Market Data for {symbol}:\n"
+            f"Current Price: {current_price}\n"
+            f"4H Chart (Context):\n"
+            f"  - EMA 50: {last_4h[ema50_col]:.2f}\n"
+            f"  - EMA 200: {last_4h[ema200_col]:.2f}\n"
+            f"  - Close: {last_4h['close']}\n"
+            f"1H Chart (Trigger):\n"
+            f"  - RSI (14): {last_1h[rsi_col]:.2f}\n"
+            f"  - Close: {last_1h['close']}"
+        )
+        
+        return data_string
 
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"Error fetching market data: {e}")
+        return None
+
+def analyze_market(data_string: str) -> str:
+    """
+    Sends data to OpenAI for analysis.
+    """
+    system_prompt = """
+You are a Senior Systematic Market Analyst. Your job is to filter trades based on INSTITUTIONAL RULES.
+
+STRICT LOGIC:
+1. MARKET REGIME (4H):
+   - BULLISH: Price > EMA 50 > EMA 200
+   - BEARISH: Price < EMA 50 < EMA 200
+   - CHOP (NO TRADE): Any other configuration (e.g. Price between EMAs).
+
+2. MOMENTUM (1H):
+   - LONG: RSI must NOT be < 30.
+   - SHORT: RSI must NOT be > 70.
+
+OUTPUT FORMAT:
+If CHOP or Bad Structure: Start response strictly with "🔴 STATUS: NO TRADE".
+If VALID SETUP: Start response strictly with "🟢 STATUS: TRADE ACTIVE" and provide Entry/SL/TP/Reasoning.
+"""
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": data_string}
+            ]
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"Error in AI analysis: {e}")
+        return None
+
+def send_telegram_alert(message: str):
+    """
+    Sends a message to Telegram.
+    """
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message
+    }
+    try:
+        resp = requests.post(url, json=payload)
+        if resp.status_code != 200:
+            logger.error(f"Failed to send Telegram message: {resp.text}")
+        else:
+            logger.info("Telegram notification sent!")
+    except Exception as e:
+        logger.error(f"Error sending Telegram alert: {e}")
+
+def main():
+    symbols = ["BTC/USDT", "ETH/USDT"]
+    logger.info(f"Starting Scheduled Analysis for {symbols}...")
+    
+    # REMOVED: while True:
+    # REMOVED: try/except blocks meant for keeping the bot alive forever
+    
+    for symbol in symbols:
+        logger.info(f"Analyzing {symbol}...")
+        
+        # 1. Get Data
+        market_data = get_market_data(symbol)
+        if not market_data:
+            logger.warning(f"Failed to get market data for {symbol}.")
+            continue
+        
+        # 2. Analyze
+        analysis_result = analyze_market(market_data)
+        if not analysis_result:
+            logger.warning(f"Failed to get analysis for {symbol}.")
+            continue
+
+        # 3. Notify
+        if "🟢 STATUS: TRADE ACTIVE" in analysis_result:
+            send_telegram_alert(f"Signal for {symbol}:\n{analysis_result}")
+        else:
+            logger.info(f"No trade active for {symbol}.")
+
+    logger.info("Analysis complete. Shutting down until next scheduled run.")
 
 if __name__ == "__main__":
     main()
