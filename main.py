@@ -32,6 +32,7 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 def get_market_data(symbol: str) -> str:
     """Fetches market data and calculates indicators."""
     try:
+        # Using binanceus to avoid geo-blocking on GitHub Actions
         exchange = ccxt.binanceus()
         
         def fetch_process(timeframe, limit):
@@ -103,7 +104,7 @@ def analyze_market(data_string: str) -> str:
     """
     try:
         response = client.chat.completions.create(
-            model="gpt-4o", # You can also use "gpt-4o-mini" to save money
+            model="gpt-4o", 
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": data_string}
@@ -135,10 +136,14 @@ def main():
         analysis_result = analyze_market(market_data)
         if not analysis_result: continue
 
+        # --- MODIFIED NOTIFICATION LOGIC ---
         if "🟢 STATUS: TRADE ACTIVE" in analysis_result:
-            send_telegram_alert(f"Signal for {symbol}:\n{analysis_result}")
+            # Case 1: Valid Trade Found
+            send_telegram_alert(f"🚨 **SIGNAL FOUND** 🚨\n\n{symbol}\n{analysis_result}")
         else:
-            logger.info(f"No trade active for {symbol}.")
+            # Case 2: No Trade (But notify anyway)
+            send_telegram_alert(f"📉 **Market Update (No Trade)**\n\n{symbol}\n{analysis_result}")
+            logger.info(f"No trade for {symbol}, but notification sent.")
 
     logger.info("Analysis complete.")
 
