@@ -26,8 +26,7 @@ jobs:
 
     - name: Run Trading Bot
       env:
-        # Change this line:
-        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }} 
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }} # Changed back from GROQ
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: |
