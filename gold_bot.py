@@ -5,7 +5,7 @@ import requests
 import ccxt
 import pandas as pd
 import pandas_ta as ta
-from openai import OpenAI # We still use this library, but we point it to Groq!
+from openai import OpenAI
 from dotenv import load_dotenv
 
 # Setup logging
@@ -18,20 +18,16 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-# --- CHANGE 1: Load Groq Key instead of OpenAI ---
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-if not all([GROQ_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID]):
-    logger.error("Missing environment variables. Check your Secrets.")
+if not all([OPENAI_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID]):
+    logger.error("Missing environment variables. Please check your GitHub Secrets or .env file.")
     exit(1)
 
-# --- CHANGE 2: Point the Client to Groq's Servers ---
-client = OpenAI(
-    base_url="https://api.groq.com/openai/v1",
-    api_key=GROQ_API_KEY
-)
+# Initialize OpenAI client (Standard)
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 def get_market_data(symbol: str) -> str:
     """Fetches market data and calculates indicators."""
@@ -48,6 +44,7 @@ def get_market_data(symbol: str) -> str:
         df_4h = fetch_process('4h', 300)
         df_1h = fetch_process('1h', 300)
 
+        # Calculate Indicators
         df_4h.ta.ema(length=50, append=True)
         df_4h.ta.ema(length=200, append=True)
         df_1h.ta.rsi(length=14, append=True)
@@ -68,9 +65,9 @@ def get_market_data(symbol: str) -> str:
              cols = [c for c in df_4h.columns if c.startswith('EMA_200')]
              if cols: ema200_col = cols[0]
 
-        last_4h = df_4h.iloc[-2]
+        last_4h = df_4h.iloc[-2] # Last completed candle
         last_1h = df_1h.iloc[-2]
-        current_price = df_1h.iloc[-1]['close']
+        current_price = df_1h.iloc[-1]['close'] # Live price
 
         data_string = (
             f"Market Data for {symbol}:\n"
@@ -90,7 +87,7 @@ def get_market_data(symbol: str) -> str:
         return None
 
 def analyze_market(data_string: str) -> str:
-    """Sends data to AI for analysis."""
+    """Sends data to OpenAI for analysis."""
     system_prompt = """
     You are a Senior Systematic Market Analyst. Your job is to filter trades based on INSTITUTIONAL RULES.
     STRICT LOGIC:
@@ -106,8 +103,7 @@ def analyze_market(data_string: str) -> str:
     """
     try:
         response = client.chat.completions.create(
-            # --- CHANGE 3: Use the Free Llama 3 model ---
-            model="llama-3.3-70b-versatile", 
+            model="gpt-4o", # You can also use "gpt-4o-mini" to save money
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": data_string}
@@ -129,7 +125,7 @@ def send_telegram_alert(message: str):
 
 def main():
     symbols = ["BTC/USDT", "ETH/USDT"]
-    logger.info(f"Starting Scheduled Analysis (Free Version) for {symbols}...")
+    logger.info(f"Starting Scheduled Analysis for {symbols}...")
     
     for symbol in symbols:
         logger.info(f"Analyzing {symbol}...")
