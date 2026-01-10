@@ -1,9 +1,6 @@
 name: Hourly Crypto Check
 
 on:
-  schedule:
-    # Run at minute 0 of every hour (e.g., 12:00, 13:00, 14:00)
-    - cron: '0 * * * *'
   # Allows you to click "Run Now" manually for testing
   workflow_dispatch:
 
