@@ -22,12 +22,6 @@ Analysis: pandas, pandas_ta, OpenAI API (GPT-4o)
 Notifications: requests (Telegram Bot API)
 
 🚀 Quick Start
-Clone the repo:
-
-Bash
-
-git clone https://github.com/yourusername/ai-crypto-market-analyst.git
-cd ai-crypto-market-analyst
 Install dependencies:
 
 Bash
@@ -53,3 +47,4 @@ Bullish Regime: Price > EMA 50 > EMA 200 (4H Chart)
 Bearish Regime: Price < EMA 50 < EMA 200 (4H Chart)
 
 Momentum Filter: RSI must be between 30 and 70 (1H Chart) to avoid exhaustion.
+
